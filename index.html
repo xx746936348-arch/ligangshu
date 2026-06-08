@@ -118,6 +118,7 @@ function App() {
   const [addCaption, setAddCaption] = useState('');
   const [addImageData, setAddImageData] = useState(null);
   const [randomCard, setRandomCard] = useState(null);
+  const [imgViewer, setImgViewer] = useState(null); // { src, caption }
   const [newCatName, setNewCatName] = useState('');
   const [newCatIcon, setNewCatIcon] = useState('🌟');
   const [newCatColor, setNewCatColor] = useState('#FFB6C1');
@@ -311,6 +312,70 @@ function App() {
     );
   }
 
+  // ─── Image Viewer ─────────────────────────────────────────────────────────
+  function ImageViewer({ src, caption, onClose }) {
+    const [scale, setScale] = useState(1);
+    const [offset, setOffset] = useState({ x: 0, y: 0 });
+    const lastDist = useRef(null);
+    const lastMid = useRef(null);
+    const startOffset = useRef(null);
+    const lastTap = useRef(0);
+
+    const getDist = (t) => {
+      const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+      return Math.sqrt(dx*dx + dy*dy);
+    };
+    const getMid = (t) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        lastDist.current = getDist(e.touches);
+        lastMid.current = getMid(e.touches);
+      } else if (e.touches.length === 1) {
+        startOffset.current = { x: e.touches[0].clientX - offset.x, y: e.touches[0].clientY - offset.y };
+        // double tap detection
+        const now = Date.now();
+        if (now - lastTap.current < 280) {
+          setScale(s => { const ns = s > 1.5 ? 1 : 2.5; if (ns === 1) setOffset({ x: 0, y: 0 }); return ns; });
+        }
+        lastTap.current = now;
+      }
+    };
+
+    const onTouchMove = (e) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        const dist = getDist(e.touches);
+        if (lastDist.current) {
+          const ratio = dist / lastDist.current;
+          setScale(s => Math.max(1, Math.min(6, s * ratio)));
+        }
+        lastDist.current = dist;
+      } else if (e.touches.length === 1 && scale > 1 && startOffset.current) {
+        setOffset({ x: e.touches[0].clientX - startOffset.current.x, y: e.touches[0].clientY - startOffset.current.y });
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      lastDist.current = null;
+      if (e.touches.length === 0 && scale <= 1) setOffset({ x: 0, y: 0 });
+    };
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+        <img src={src} alt={caption}
+          style={{ maxWidth: '100vw', maxHeight: '100vh', objectFit: 'contain', transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`, transformOrigin: 'center', touchAction: 'none', userSelect: 'none', display: 'block', transition: scale === 1 ? 'transform 0.2s' : 'none' }} />
+        <button onClick={onClose}
+          style={{ position: 'absolute', top: 54, right: 16, background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: 38, height: 38, color: '#fff', fontSize: 18, cursor: 'pointer', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        {caption && scale <= 1.2 && (
+          <div style={{ position: 'absolute', bottom: 48, left: 0, right: 0, textAlign: 'center', color: 'rgba(255,255,255,0.85)', fontSize: 14, padding: '0 24px', textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>{caption}</div>
+        )}
+        <div style={{ position: 'absolute', bottom: 24, left: 0, right: 0, textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>双击或双指缩放</div>
+      </div>
+    );
+  }
+
   // ─── Shared styles ────────────────────────────────────────────────────────
   const S = {
     page: { maxWidth: 480, margin: '0 auto', minHeight: '100vh', background: '#fdf6f9', position: 'relative' },
@@ -442,7 +507,10 @@ function App() {
           <div style={{ background: '#fff', borderRadius: 22, boxShadow: '0 6px 28px rgba(0,0,0,0.10)', width: '100%', maxWidth: 400, overflow: 'hidden' }}>
             {card?.type === 'image' ? (
               <div>
-                <img src={card.content} alt={card.caption} style={{ width: '100%', maxHeight: 380, objectFit: 'contain', display: 'block' }} />
+                <div onClick={() => setImgViewer({ src: card.content, caption: card.caption })} style={{ cursor: 'zoom-in', position: 'relative' }}>
+                  <img src={card.content} alt={card.caption} style={{ width: '100%', maxHeight: 380, objectFit: 'contain', display: 'block' }} />
+                  <div style={{ position: 'absolute', bottom: 8, right: 10, background: 'rgba(0,0,0,0.35)', borderRadius: 10, padding: '2px 8px', fontSize: 11, color: '#fff', backdropFilter: 'blur(4px)' }}>🔍 点击放大</div>
+                </div>
                 {card.caption && <div style={{ padding: '14px 18px 8px', fontSize: 14, color: '#555', borderTop: '1px solid #f5eff5', lineHeight: 1.6 }}>{card.caption}</div>}
                 <div style={{ padding: '4px 18px 16px', fontSize: 11, color: '#c8b8c8' }}>{card?.createdAt && new Date(card.createdAt).toLocaleDateString('zh-CN')}</div>
               </div>
@@ -651,7 +719,10 @@ function App() {
           </div>
           {rc?.type === 'image' ? (
             <div>
-              <img src={rc.content} alt={rc.caption} style={{ width: '100%', maxHeight: 300, objectFit: 'contain', display: 'block' }} />
+              <div onClick={() => setImgViewer({ src: rc.content, caption: rc.caption })} style={{ cursor: 'zoom-in', position: 'relative' }}>
+                <img src={rc.content} alt={rc.caption} style={{ width: '100%', maxHeight: 300, objectFit: 'contain', display: 'block' }} />
+                <div style={{ position: 'absolute', bottom: 8, right: 10, background: 'rgba(0,0,0,0.35)', borderRadius: 10, padding: '2px 8px', fontSize: 11, color: '#fff' }}>🔍 点击放大</div>
+              </div>
               {rc.caption && <div style={{ padding: '12px 18px 8px', fontSize: 14, color: '#555', borderTop: '1px solid #f5eff5', lineHeight: 1.6 }}>{rc.caption}</div>}
             </div>
           ) : (
@@ -702,6 +773,7 @@ function App() {
       {modal === 'addCard'    && <AddCardModal />}
       {modal === 'addCat'     && <AddCategoryModal />}
       {modal === 'random'     && <RandomModal />}
+      {imgViewer && <ImageViewer src={imgViewer.src} caption={imgViewer.caption} onClose={() => setImgViewer(null)} />}
       {modal === 'deleteCard' && <ConfirmModal title="删除这张卡片？" onConfirm={deleteCard} onCancel={() => setModal(null)} />}
       {modal === 'deleteCat'  && <ConfirmModal title={`删除"${cat?.name}"？`} body="该分类下所有卡片也会一并删除，无法恢复。" onConfirm={deleteCategory} onCancel={() => setModal(null)} />}
 
