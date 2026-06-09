@@ -127,13 +127,40 @@ const DEFAULT_CATEGORIES = [
   {id:'c12',name:'灵感收藏',icon:'✨',color:'#E8DFFF',cards:[]},
 ];
 
-function loadData() {
-  try { const s=localStorage.getItem('_ibook_v3'); if(s) return JSON.parse(s); } catch(e) {}
-  return { categories: DEFAULT_CATEGORIES.map(c=>({...c})) };
-}
+// ─── IndexedDB persistence (no size limit, safe for images) ──────────────
+const IDB = {
+  _db: null,
+  open() {
+    if (this._db) return Promise.resolve(this._db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('ibook_db', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('kv');
+      req.onsuccess = e => { this._db = e.target.result; resolve(this._db); };
+      req.onerror = e => reject(e.target.error);
+    });
+  },
+  async get(key) {
+    const db = await this.open();
+    return new Promise((resolve) => {
+      const req = db.transaction('kv','readonly').objectStore('kv').get(key);
+      req.onsuccess = e => resolve(e.target.result);
+      req.onerror = () => resolve(null);
+    });
+  },
+  async set(key, value) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('kv','readwrite');
+      tx.objectStore('kv').put(value, key);
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  },
+};
 
 function App() {
-  const [categories, setCategories] = useState(() => loadData().categories);
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES.map(c=>({...c})));
+  const [dbLoaded, setDbLoaded] = useState(false);
   const [screen, setScreen] = useState('home');
   const [catId, setCatId] = useState(null);
   const [cardIdx, setCardIdx] = useState(0);
@@ -155,9 +182,19 @@ function App() {
   const touchStartX = useRef(null);
   const toastTimer = useRef(null);
 
+  // Load from IndexedDB on first mount
   useEffect(() => {
-    try { localStorage.setItem('_ibook_v3', JSON.stringify({categories})); } catch(e) {}
-  }, [categories]);
+    IDB.get('categories').then(saved => {
+      if (saved && Array.isArray(saved)) setCategories(saved);
+      setDbLoaded(true);
+    }).catch(() => setDbLoaded(true));
+  }, []);
+
+  // Save to IndexedDB whenever categories change (but only after initial load)
+  useEffect(() => {
+    if (!dbLoaded) return;
+    IDB.set('categories', categories).catch(e => console.warn('Save failed', e));
+  }, [categories, dbLoaded]);
 
   const cat = categories.find(c => c.id === catId);
   const cards = cat?.cards || [];
@@ -772,6 +809,15 @@ function App() {
   }
 
   // ─── Root Render ──────────────────────────────────────────────────────────
+  if (!dbLoaded) return (
+    <div style={{...S.page,display:'flex',alignItems:'center',justifyContent:'center',height:'100vh'}}>
+      <div style={{textAlign:'center',color:'#e0a0b0'}}>
+        <div style={{fontSize:40,marginBottom:12}}>📖</div>
+        <div style={{fontSize:14}}>加载中…</div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={S.page}>
       {screen==='home'     && <HomeScreen />}
