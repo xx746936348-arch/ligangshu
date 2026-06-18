@@ -276,14 +276,34 @@ function App() {
     setRandomCard({card:cards[idx],index:idx});
   };
 
+  // Compress image to max 1200px wide, JPEG 82% — reduces a 8MB phone photo to ~150KB
+  const compressImage = (dataUrl) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => resolve(dataUrl); // fallback: use original
+    img.src = dataUrl;
+  });
+
   const handleImageUploads = (e) => {
     const files = Array.from(e.target.files||[]);
     if (!files.length) return;
-    const oversized = files.filter(f => f.size > 10*1024*1024);
-    if (oversized.length) { showToast('单张图片不能超过 10MB'); return; }
+    showToast('处理图片中…');
     Promise.all(files.map(f => new Promise(res => {
-      const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(f);
-    }))).then(results => { setAddImages(prev => [...prev, ...results]); });
+      const r = new FileReader();
+      r.onload = ev => compressImage(ev.target.result).then(res);
+      r.readAsDataURL(f);
+    }))).then(results => {
+      setAddImages(prev => [...prev, ...results]);
+      setToast(null);
+    });
     e.target.value='';
   };
 
