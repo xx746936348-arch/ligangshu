@@ -161,6 +161,7 @@ const IDB = {
 function App() {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES.map(c=>({...c})));
   const [dbLoaded, setDbLoaded] = useState(false);
+  const [showBackupBanner, setShowBackupBanner] = useState(false);
   const [screen, setScreen] = useState('home');
   const [catId, setCatId] = useState(null);
   const [cardIdx, setCardIdx] = useState(0);
@@ -182,12 +183,18 @@ function App() {
   const touchStartX = useRef(null);
   const toastTimer = useRef(null);
 
-  // Load from IndexedDB on first mount
+  // Load from IndexedDB on first mount + check backup reminder
   useEffect(() => {
     IDB.get('categories').then(saved => {
       if (saved && Array.isArray(saved)) setCategories(saved);
       setDbLoaded(true);
     }).catch(() => setDbLoaded(true));
+    // Check last backup date
+    IDB.get('lastBackup').then(ts => {
+      if (!ts) { setShowBackupBanner(true); return; }
+      const daysSince = (Date.now() - ts) / (1000 * 60 * 60 * 24);
+      if (daysSince >= 7) setShowBackupBanner(true);
+    }).catch(() => {});
   }, []);
 
   // Save to IndexedDB whenever categories change (but only after initial load)
@@ -315,7 +322,9 @@ function App() {
     const a = document.createElement('a');
     a.href=url; a.download=`灵感册备份_${new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')}.json`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    showToast('导出成功 📤');
+    IDB.set('lastBackup', Date.now());
+    setShowBackupBanner(false);
+    showToast('导出成功 📤 请保存到 iCloud 文件');
   };
 
   const handleImport = (e) => {
@@ -852,6 +861,20 @@ function App() {
       {modal==='deleteCat'  && <ConfirmModal title={`删除"${cat?.name}"？`} body="该分类下所有卡片也会一并删除，无法恢复。" onConfirm={deleteCategory} onCancel={()=>setModal(null)} />}
 
       {imgViewer && <ImageViewer images={imgViewer.images} initialIndex={imgViewer.index} caption={imgViewer.caption} onClose={()=>setImgViewer(null)} />}
+
+      {showBackupBanner && (
+        <div style={{position:'fixed',bottom:0,left:0,right:0,maxWidth:480,margin:'0 auto',zIndex:500,padding:'0 0 env(safe-area-inset-bottom,0)'}}>
+          <div style={{background:'linear-gradient(135deg,#ff9a9e,#fecfef)',padding:'14px 16px',display:'flex',alignItems:'center',gap:12,boxShadow:'0 -4px 20px rgba(255,150,170,0.3)'}}>
+            <div style={{fontSize:22}}>🔔</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:'#fff'}}>建议导出备份</div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.85)',marginTop:1}}>保存到 iCloud 文件，数据永不丢失</div>
+            </div>
+            <button onClick={exportData} style={{background:'#fff',border:'none',borderRadius:10,padding:'7px 14px',fontSize:13,fontWeight:700,color:'#ff7090',cursor:'pointer',flexShrink:0}}>立即备份</button>
+            <button onClick={()=>setShowBackupBanner(false)} style={{background:'rgba(255,255,255,0.25)',border:'none',borderRadius:'50%',width:28,height:28,color:'#fff',fontSize:14,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div style={{position:'fixed',bottom:88,left:'50%',transform:'translateX(-50%)',background:'rgba(42,20,42,0.82)',color:'#fff',padding:'9px 22px',borderRadius:22,fontSize:14,zIndex:9999,whiteSpace:'nowrap',backdropFilter:'blur(4px)'}}>
